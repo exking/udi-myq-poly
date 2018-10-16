@@ -1,0 +1,21 @@
+{
+    "name": "MyQ2",
+    "docs": "https://github.com/exking/udi-myq-poly",
+    "type": "python3",
+    "executable": "myq2.py",
+    "install": "install.sh",
+    "description": "MyQ Controller for Chamberlain and LiftMaster garage doors",
+    "notice": "",
+    "shortPoll": "60",
+    "longPoll": "1800",
+    "credits": [
+        {
+            "title": "MyQ Controller for Chamberlain and LiftMaster garage doors",
+            "author": "xKing",
+            "version": "0.0.1",
+            "date": "October 15, 2018",
+            "source": "https://github.com/exking/udi-myq-poly",
+            "license": "https://raw.githubusercontent.com/exking/udi-myq-poly/master/LICENSE"
+        }
+    ]
+}

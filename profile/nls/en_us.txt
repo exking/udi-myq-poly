@@ -1,0 +1,19 @@
+# controller
+ND-MYQCTRL-NAME = MyQ Controller
+ND-MYQCTRL-ICON = GenericCtl
+ST-MYQCTL-ST-NAME = NodeServer Online
+CMD-MYQCTL-DISCOVER-NAME = Re-Discover Devices
+
+ND-MYQDEV-NAME = MyQ Door
+ND-MYQDEV-ICON = DoorLock
+CMD-MYQ-QUERY-NAME = Query
+CMD-MYQ-DON-NAME = Open
+CMD-MYQ-DOF-NAME = Close
+ST-MYQ-ST-NAME = Door State
+
+DOOR_STATE-0 = Closed
+DOOR_STATE-1 = Open
+DOOR_STATE-2 = Stopped
+DOOR_STATE-3 = Closing
+DOOR_STATE-4 = Opening
+DOOR_STATE-5 = Unknown
