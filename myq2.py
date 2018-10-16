@@ -2,10 +2,10 @@
 
 import polyinterface
 import sys
+import logging
 from pymyq import MyQAPI as pymyq
 
 LOGGER = polyinterface.LOGGER
-
 
 class Controller(polyinterface.Controller):
     def __init__(self, polyglot):
@@ -14,8 +14,11 @@ class Controller(polyinterface.Controller):
         self.address = 'myqctrl'
         self.primary = self.address
         self.myq = None
+        self.data = None
 
     def start(self):
+        if 'debug' not in self.polyConfig['customParams']:
+            LOGGER.setLevel(logging.INFO)
         LOGGER.info('Started MyQ Controller')
         if not 'username' in self.polyConfig['customParams']:
             LOGGER.error('Please specify username parameter in the NodeServer configuration')
@@ -24,16 +27,16 @@ class Controller(polyinterface.Controller):
             LOGGER.error('Please specify password parameter in the NodeServer configuration')
             return
         if not 'brand' in self.polyConfig['customParams']:
-            LOGGER.error('Please specify brand parameter in the NodeServer configuration')
-            return
+            brand = pymyq.CHAMBERLAIN
+            LOGGER.info('Please specify brand parameter in the NodeServer configuration, default to {}'.format(brand))
+        else:
+            brand = self.polyConfig['customParams']['brand']
+            if not brand in pymyq.SUPPORTED_BRANDS:
+                LOGGER.error('Invalid brand specified: {}, valid options are: '.format(brand, pymyq.SUPPORTED_BRANDS))
+                return
 
         username = self.polyConfig['customParams']['username']
         password = self.polyConfig['customParams']['password']
-        brand = self.polyConfig['customParams']['brand']
-
-        if not brand in ['liftmaster', 'chamberlain', 'craftsman', 'merlin' ]:
-            LOGGER.error('Invalid brand specified: {}, valid options are: liftmaster, chamberlain, craftsman, merlin'.format(brand))
-            return
 
         self.myq = pymyq(username, password, brand)
 
@@ -52,20 +55,34 @@ class Controller(polyinterface.Controller):
             if not address in self.nodes:
                 self.addNode(MyQDev(self, self.address, address, name, dev_id))
                 LOGGER.info('Adding {} with ID {}'.format(name, address))
+        self.get_data()
 
     def stop(self):
         LOGGER.info('MyQ Controller is stopping')
 
+    def get_data(self):
+        self.data = self.myq.get_devices()
+        if self.data is False:
+            LOGGER.info('Controller - retrying to get data')
+            self.data = self.myq.get_devices()
+        if self.data:
+            return True
+        return False
+
     def shortPoll(self):
+        self.get_data()
         for node in self.nodes:
             self.nodes[node].updateInfo()
             
     def longPoll(self):
+        pass
+        '''
         LOGGER.info('Refreshing token...')
         if self.myq.is_login_valid():
             LOGGER.info('Token Ok')
         else:
             LOGGER.error('Token refresh failure')
+        '''
 
     def updateInfo(self):
         pass
@@ -84,78 +101,86 @@ class MyQDev(polyinterface.Node):
     def __init__(self, controller, primary, address, name, dev_id):
         super().__init__(controller, primary, address, name)
         self.state = None
-        self.retry = False
         self.device_id = dev_id
 
     def start(self):
         LOGGER.info('Starting {}'.format(self.name))
         self.updateInfo()
 
+    def _get_status(self):
+        if self.controller.data is None:
+            LOGGER.error('No data from the controller {}'.format(self.name))
+            return False
+
+        door_state = False
+        for door in self.controller.data:
+            if door['MyQDeviceTypeName'] in pymyq.SUPPORTED_DEVICE_TYPE_NAMES and door['MyQDeviceId'] == self.device_id:
+                for attribute in door['Attributes']:
+                    if attribute['AttributeDisplayName'] == 'doorstate':
+                        myq_door_state = attribute['Value']
+                        door_state = pymyq.DOOR_STATE[myq_door_state]
+        return door_state
+
     def updateInfo(self):
         LOGGER.debug('Updating {}'.format(self.name))
-        try:
-            state = self.controller.myq.get_status(self.device_id)
-        except Exception as ex:
-            LOGGER.warning('Unable to update the {} status {}'.format(self.name, ex))
-            if not self.retry:
-                self.retry = True
-                self.updateInfo()
-                return
-        if state == 'open':
+        state = self._get_status()
+        if state == pymyq.STATE_OPEN:
             self.setDriver('ST', 1)
             if self.state != state:
                 self.reportCmd('DON')
             self.state = state
-        elif state == 'closed':
+        elif state == pymyq.STATE_CLOSED:
             self.setDriver('ST', 0)
             if self.state != state:
                 self.reportCmd('DOF')
             self.state = state
-        elif state == 'stopped':
+        elif state == pymyq.STATE_STOPPED:
             self.setDriver('ST', 2)
             self.state = state
-        elif state == 'closing':
+        elif state == pymyq.STATE_CLOSING:
             self.setDriver('ST', 3)
             self.state = state
-        elif state == 'opening':
+        elif state == pymyq.STATE_OPENING:
             self.setDriver('ST', 4)
             self.state = state
         else:
             self.setDriver('ST', 5)
             self.state = state
-        self.retry = False
 
     def query(self, command=None):
+        self.controller.get_data()
         self.updateInfo()
 
     def door_open(self, command):
-        if self.state in ['open', 'opening']:
+        self.controller.get_data()
+        self.state = self._get_status()
+        if self.state in [pymyq.STATE_OPEN, pymyq.STATE_OPENING]:
             LOGGER.warning('{} is already {}'.format(self.name, self.state))
             return
         LOGGER.info('Opening {}'.format(self.name))
-        try:
-            self.controller.myq.open_device(self.device_id)
-        except Exception as ex:
-            LOGGER.error('Unable to open the door {} {}'.format(self.name, ex))
-            if not self.retry:
-                self.retry = True
-                self.door_open(command)
-        self.retry = False
+        result = self.controller.myq.open_device(self.device_id)
+        if result is False:
+            LOGGER.error('Unable to open the door {}, retrying...'.format(self.name))
+            result = self.controller.myq.open_device(self.device_id)
+            if result is False:
+                LOGGER.error('Retry failed')
+                return
         self.setDriver('ST', 4)
 
     def door_close(self, command):
-        if self.state in ['closed', 'closing']:
+        self.controller.get_data()
+        self.state = self._get_status()
+        if self.state in [pymyq.STATE_CLOSED, pymyq.STATE_CLOSING]:
             LOGGER.warning('{} is already {}'.format(self.name, self.state))
             return
         LOGGER.info('Closing {}'.format(self.name))
-        try:
-            self.controller.myq.close_device(self.device_id)
-        except Exception as ex:
-            LOGGER.error('Unable to open the door {} {}'.format(self.name, ex))
-            if not self.retry:
-                self.retry = True
-                self.door_close(command)
-        self.retry = False
+        result = self.controller.myq.close_device(self.device_id)
+        if result is False:
+            LOGGER.error('Unable to close the door {}, retrying...'.format(self.name))
+            result = self.controller.myq.close_device(self.device_id)
+            if result is False:
+                LOGGER.error('Retry failed')
+                return
         self.setDriver('ST', 3)
 
     id = 'MYQDEV'
