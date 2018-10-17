@@ -108,7 +108,7 @@ class MyQDev(polyinterface.Node):
         self.updateInfo()
 
     def _get_status(self):
-        if self.controller.data is None:
+        if self.controller.data is None or self.controller.data is False:
             LOGGER.error('No data from the controller {}'.format(self.name))
             return False
 
