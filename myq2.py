@@ -61,10 +61,18 @@ class Controller(polyinterface.Controller):
         LOGGER.info('MyQ Controller is stopping')
 
     def get_data(self):
-        self.data = self.myq.get_devices()
+        try:
+            self.data = self.myq.get_devices()
+        except Exception as ex:
+            LOGGER.error('Exception while getting device list: {}'.format(ex))
+            self.data = False
         if self.data is False:
             LOGGER.info('Controller - retrying to get data')
-            self.data = self.myq.get_devices()
+            try:
+                self.data = self.myq.get_devices()
+            except Exception as ex:
+                LOGGER.error('Exception while getting device list: {}'.format(ex))
+                self.data = False
         if self.data:
             return True
         return False
@@ -154,6 +162,9 @@ class MyQDev(polyinterface.Node):
     def door_open(self, command):
         self.controller.get_data()
         self.state = self._get_status()
+        if self.state is False:
+            LOGGER.error('Unable to get the current door status, command not executed')
+            return
         if self.state in [pymyq.STATE_OPEN, pymyq.STATE_OPENING]:
             LOGGER.warning('{} is already {}'.format(self.name, self.state))
             return
@@ -170,6 +181,9 @@ class MyQDev(polyinterface.Node):
     def door_close(self, command):
         self.controller.get_data()
         self.state = self._get_status()
+        if self.state is False:
+            LOGGER.error('Unable to get the current door status, command not executed')
+            return
         if self.state in [pymyq.STATE_CLOSED, pymyq.STATE_CLOSING]:
             LOGGER.warning('{} is already {}'.format(self.name, self.state))
             return
